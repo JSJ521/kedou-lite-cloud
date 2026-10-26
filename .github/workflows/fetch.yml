@@ -29,22 +29,39 @@ jobs:
           python -m pip install -U --quiet yt-dlp
           yt-dlp --version
 
+      - name: 准备 cookies（可选）
+        env:
+          COOKIES_B64: ${{ secrets.KEDOU_COOKIES_B64 }}
+        run: |
+          if [ -n "$COOKIES_B64" ]; then
+            echo "$COOKIES_B64" | base64 -d > cookies.txt
+            echo "已写入 cookies.txt：$(wc -c < cookies.txt) 字节"
+          else
+            echo "未配置 KEDOU_COOKIES_B64（YouTube 人机验证时需要它）"
+          fi
+
       - name: 下载
         env:
           URL: ${{ inputs.url }}
           FMT: ${{ inputs.format }}
+          PROXY: ${{ secrets.KEDOU_PROXY }}
         run: |
           mkdir -p out
+          EXTRA=""
+          if [ -f cookies.txt ]; then EXTRA="--cookies cookies.txt"; fi
+          if [ -n "$PROXY" ]; then EXTRA="$EXTRA --proxy $PROXY"; fi
+          echo "附加参数: $EXTRA"
+          CLIENT="youtube:player_client=android,web_safari,tv,mweb"
           if [ "$FMT" = "audio" ]; then
-            yt-dlp --no-playlist -f bestaudio -x --audio-format mp3 \
-              --extractor-args "youtube:player_client=android,web_safari,tv" \
+            yt-dlp --no-playlist -f bestaudio -x --audio-format mp3 $EXTRA \
+              --extractor-args "$CLIENT" \
               -o "out/%(title).100B [%(id)s].%(ext)s" "$URL" || \
-            yt-dlp --no-playlist -f best \
-              --extractor-args "youtube:player_client=android,web_safari,tv" \
+            yt-dlp --no-playlist -f best $EXTRA \
+              --extractor-args "$CLIENT" \
               -o "out/%(title).100B [%(id)s].%(ext)s" "$URL"
           else
-            yt-dlp --no-playlist -f "$FMT/best" --merge-output-format mp4 \
-              --extractor-args "youtube:player_client=android,web_safari,tv" \
+            yt-dlp --no-playlist -f "$FMT/best" --merge-output-format mp4 $EXTRA \
+              --extractor-args "$CLIENT" \
               -o "out/%(title).100B [%(id)s].%(ext)s" "$URL"
           fi
           echo "--- 产出 ---"
