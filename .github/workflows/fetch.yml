@@ -1,0 +1,73 @@
+name: fetch
+
+# 用 GitHub 的免费算力跑 yt-dlp：手机端触发 → 云端下载 → 产出下载链接
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "视频链接"
+        required: true
+      format:
+        description: "格式（best / 仅音频填 audio）"
+        required: false
+        default: "best"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ffmpeg + yt-dlp
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -U --quiet yt-dlp
+          yt-dlp --version
+
+      - name: 下载
+        env:
+          URL: ${{ inputs.url }}
+          FMT: ${{ inputs.format }}
+        run: |
+          mkdir -p out
+          if [ "$FMT" = "audio" ]; then
+            yt-dlp --no-playlist -f bestaudio -x --audio-format mp3 \
+              --extractor-args "youtube:player_client=android,web_safari,tv" \
+              -o "out/%(title).100B [%(id)s].%(ext)s" "$URL" || \
+            yt-dlp --no-playlist -f best \
+              --extractor-args "youtube:player_client=android,web_safari,tv" \
+              -o "out/%(title).100B [%(id)s].%(ext)s" "$URL"
+          else
+            yt-dlp --no-playlist -f "$FMT/best" --merge-output-format mp4 \
+              --extractor-args "youtube:player_client=android,web_safari,tv" \
+              -o "out/%(title).100B [%(id)s].%(ext)s" "$URL"
+          fi
+          echo "--- 产出 ---"
+          ls -la out/ || true
+          du -h out/* 2>/dev/null || true
+
+      - name: 上传为构建产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-${{ github.run_id }}
+          path: out/
+          if-no-files-found: warn
+
+      - name: 发布到 Release（生成可匿名下载的链接）
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: job-${{ github.run_id }}
+          name: "任务 ${{ github.run_id }}"
+          body: |
+            来源：${{ inputs.url }}
+            格式：${{ inputs.format }}
+          files: out/*
+          fail_on_unmatched_files: false
+          make_latest: false
